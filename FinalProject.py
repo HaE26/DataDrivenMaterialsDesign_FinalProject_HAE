@@ -25,6 +25,7 @@ Plot ultimate strength against loading rate, then fit a curve (try to?)
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy import optimize
 
 
 
@@ -88,17 +89,8 @@ def get_r_eff(L,h,r_supp):
     
     return r_eff
 
-def graph_measurements(DAT_file_np):
-    """Currentlty unused function to be repurposed for line fitting.
-    """
-    Zeit = DAT_file_np[0]
-    Kraft = DAT_file_np[2]
-    
-    plt.figure(figsize=(7, 5)) 
-    plt.plot(Zeit,Kraft)
-    
-    plt.show()
-    return DAT_file_np
+def get_linear_func(x,m,b):
+    return m*x +b
 
 def calculate_sigma_max(sample_data_dict):
     """
@@ -130,7 +122,41 @@ def calculate_sigma_max(sample_data_dict):
         
     return sigma_max_list
 
-#Function calls
-sample_data_dict = retrieve_sample_data("CuratedRawData_Sand_033_Box1_RT_schnell(1)/")
-sigma_max_list = calculate_sigma_max(sample_data_dict)
+def graph_measurements(sample_data_dict):
+    """Currentlty unused function to be repurposed for line fitting.
+    """
+    sample_data_dict = sample_data_dict["Sample0"]
+    
+    for i in range(len(sample_data_dict)):
+        plt.figure(figsize=(7, 5)) 
+        load_data = sample_data_dict["Loading"]
+        Zeit = load_data[:, 0]
+        Kraft = load_data[:, 2]
+        plt.plot(Zeit,Kraft)
+        plt.title('Load over Time')
+        plt.xlabel('Time t (s)')
+        plt.ylabel('Load F (N)')
+        plt.show()
+        
+        Zeit_75 = Zeit[int(len(Zeit)*0.25):int(len(Zeit)-2)]
+        Kraft_75 = Kraft[int(len(Kraft)*0.25):int(len(Kraft)-2)]
+        
+        param, cov = optimize.curve_fit(get_linear_func,
+                                        Zeit_75,
+                                        Kraft_75, 
+                                        p0=[Zeit_75[-1], Kraft_75[0]], 
+                                        maxfev=50000)
+        
+        linear_fit = get_linear_func(Zeit_75, *param)
+        
+        plt.plot(Zeit_75,linear_fit,
+                 color='black')
 
+#Function calls
+sample_data_dict_schnell = retrieve_sample_data("CuratedRawData_Sand_033_Box1_RT_schnell(1)/")
+sigma_max_list = calculate_sigma_max(sample_data_dict_schnell)
+graph_measurements(sample_data_dict_schnell)
+
+#sample_data_dict_langsam = retrieve_sample_data("CuratedRawData_Sand_033_Box2_RT_langsam(1)/")
+#sigma_max_list = calculate_sigma_max(sample_data_dict_langsam)
+#graph_measurements(sample_data_dict_langsam)

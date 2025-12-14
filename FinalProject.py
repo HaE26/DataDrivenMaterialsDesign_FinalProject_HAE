@@ -21,7 +21,19 @@ I think there is a Weibull distribution here somewhere?
 
 Plot ultimate strength against loading rate, then fit a curve (try to?)    
 
+
+Progress:
+    Almost all steps done. Just need to calculate the propertoes from load rate
+    versus max stress, and then something about that Weibull distribution. 
+    The code should then get cleaned up.
 """
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Dec 14 13:34:52 2025
+
+@author: Hunter
+"""
+
 import glob
 import numpy as np
 import matplotlib.pyplot as plt
@@ -30,6 +42,39 @@ from scipy import optimize
 
 
 nu = 0.25
+
+def graphing(
+    x, y, title, xaxislabel, yaxislabel,
+    legendlabel=None,
+    font_size=16,
+    color='blue',
+    line_style='-',
+    plot_type='plot',
+    marker_type=None):
+    """
+    I don't know if this actually makes things easier, but I put most of the graphing into a function. I don't know.
+    """
+    if plot_type == 'plot':
+        plt.plot(
+            x, y,
+            color=color,
+            linestyle=line_style,
+            marker=marker_type,
+            label=legendlabel)
+        
+    elif plot_type == 'scatter':
+        plt.scatter(
+            x, y,
+            color=color,
+            marker=marker_type,
+            label=legendlabel
+        )
+    else:
+        raise ValueError(f"Unsupported plot_type for this funny function: {plot_type}")
+
+    plt.title(title, fontsize=font_size)
+    plt.xlabel(xaxislabel, fontsize=font_size)
+    plt.ylabel(yaxislabel, fontsize=font_size)
 
 def retrieve_sample_data(directory):
     """
@@ -42,6 +87,7 @@ def retrieve_sample_data(directory):
     I ran into issues with the original xlsx file. I could not use it as xlsx 
     because I got an encoding error. I then had to change all of the commas to 
     decimals so that np.loadtxt would stop interpreting them as strings.
+    This also means that the units of h have to be divided by 100
     
     """
     DAT_files = sorted(glob.glob(f"{directory}LTCC_*.dat")) #Provide file name for for loop.
@@ -90,23 +136,26 @@ def get_r_eff(L,h,r_supp):
     return r_eff
 
 def get_linear_func(x,m,b):
-    return m*x +b
+    return m*x + b
 
-def calculate_sigma_max(sample_data_dict):
+def calculate_sigma(sample_data_dict):
     """
     Takes in the sample data dictionary from retrieve_sample_data, and then uses
-    the max load, side length, thickness, and ball diameter to calculate the
-    ultimate stress before failure. It then returns all stresses for this 
-    loading rate as a list ready to graph.
+    the max load, side length, thickness, and ball diameter to calculate the stresses and
+    ultimate stress before failure. It then edits the loading data to add a 4th column containing stress,
+    and adds a key value pair in the dictionary for max stress before failure. and then returns
+    the entire dictionary with the added details.
     
     Because load parameter is in N and lengths are in mm, stress is in units of MPa.
     
+    THE UNITS OF H ARE BEING CORRECTED HERE!!
+    
     """
     #If stresses seem off, check first that B3B is the ball diameter and not the radius. Currently assuming it is the diameter
-    sigma_max_list=[]
     for i in range(len(sample_data_dict)):
         #Extract values from dictionary
         max_load = np.max(sample_data_dict[f"Sample{i}"]["Loading"])
+        load_data = sample_data_dict[f"Sample{i}"]["Loading"]
         L = sample_data_dict[f"Sample{i}"]["Side Length"]
         h = sample_data_dict[f"Sample{i}"]["Thickness"]/1000
         D_ball = sample_data_dict[f"Sample{i}"]["D_ball"]
@@ -117,46 +166,116 @@ def calculate_sigma_max(sample_data_dict):
         f_factor = get_f(h,nu,r_eff,r_supp)
         
         #Calculate sigma_max and store for this sample
-        sigma_max = f_factor * (max_load/(h)**2)
-        sigma_max_list.append(sigma_max)
+        sigma = f_factor * (load_data[:, 2]/(h)**2)
+        load_data = np.column_stack((load_data, sigma))
+        sample_data_dict[f"Sample{i}"]["Loading"] = load_data
         
-    return sigma_max_list
+        sigma_max = np.max(sigma)
+        sample_data_dict[f"Sample{i}"]["Max Stress"] = sigma_max
+        
+    return sample_data_dict
 
-def graph_measurements(sample_data_dict):
-    """Currentlty unused function to be repurposed for line fitting.
+
+def graph_load_measurements(sample_data_dict):
     """
-    sample_data_dict = sample_data_dict["Sample0"]
+    Uses the calculate_sigma function to graph stress over time for each sample in
+    sample_data_dict. Also performs a linear fit of the loading data for stress over time
+    to find loading rate in MPa/s, and then returns the slope in the dictionary
+    under key "Loading Rate".
+    
+    CHANGES TO MAKE:
+        - Improve appearance of graphs with fonts and titles
+        - Add legend contianing max stress
+    """
+    sample_data_dict = calculate_sigma(sample_data_dict)
     
     for i in range(len(sample_data_dict)):
-        plt.figure(figsize=(7, 5)) 
-        load_data = sample_data_dict["Loading"]
+        #Extracting data to be plotted
+        sample = sample_data_dict[f"Sample{i}"]
+        load_data = sample["Loading"]
         Zeit = load_data[:, 0]
-        Kraft = load_data[:, 2]
-        plt.plot(Zeit,Kraft)
-        plt.title('Load over Time')
-        plt.xlabel('Time t (s)')
-        plt.ylabel('Load F (N)')
-        plt.show()
+        Spannung = load_data[:, 3]
         
-        Zeit_75 = Zeit[int(len(Zeit)*0.25):int(len(Zeit)-2)]
-        Kraft_75 = Kraft[int(len(Kraft)*0.25):int(len(Kraft)-2)]
+        #Splitting the data for a linear fit. We are taking the top 75% of data while slicing off the last value.
+        Zeit_75 = Zeit[int(len(Zeit)*0.25):int(len(Zeit)-1)]
+        Spannung_75 = Spannung[int(len(Spannung)*0.25):int(len(Spannung)-1)]
         
+        #Calculating a linear fit.
         param, cov = optimize.curve_fit(get_linear_func,
                                         Zeit_75,
-                                        Kraft_75, 
-                                        p0=[Zeit_75[-1], Kraft_75[0]], 
+                                        Spannung_75, 
+                                        p0=[Zeit_75[-1], Spannung_75[0]], 
                                         maxfev=50000)
-        
         linear_fit = get_linear_func(Zeit_75, *param)
-        
+        """
+        #Graphing Code
+        plt.figure(figsize=(7, 5)) 
+        graphing(Zeit, Spannung, title='Load over Time', xaxislabel='Time t (s)',
+                 yaxislabel='Stress sigma (MPa)', legendlabel='Stress')
         plt.plot(Zeit_75,linear_fit,
-                 color='black')
+                color='black',
+                label = 'Linear Function fit')
+        
+        plt.legend(prop={'size': 15})
+        """
+        
+        #Storing the slope of the fitted line as the loading rate.
+        m, b = param
+        sample_data_dict[f"Sample{i}"]["Loading Rate"] = m
+        
+    return sample_data_dict
+        
+def graph_sigma_max_vs_loading_rate(*sample__data_dicts):
+    """
+    This function is kind of a mess. I was just trying to get it to work.
+    
+    This function takes each dictionary for each loading rate, and then 
+    graphs the max stress against loading rate for each sample. It then makes a linear fit.
+    
+    NEXT STEP:
+        Need to calculate N and that other coefficient. If forgot what
+        it's called because I don't have the paper with me rn.
+    """
+    
+    
+    plt.figure(figsize=(7, 5))
+    loading_rate_list=[]
+    max_stress_list =[]
+    for sample_data_dict in sample__data_dicts:
+        for i in range(len(sample_data_dict)):
+            sample = sample_data_dict[f"Sample{i}"]
+            
+            loading_rate = sample["Loading Rate"]
+            loading_rate_list.append(float(loading_rate))
+            
+            max_stress = sample["Max Stress"]
+            max_stress_list.append(float(max_stress))
+            
+            plt.scatter(loading_rate, max_stress)
+    loading_rate_array = np.asarray(loading_rate_list, dtype=float)
+    max_stress_array   = np.asarray(max_stress_list,   dtype=float)
+    print(type(loading_rate_array))
+    print(type(max_stress_array))
+    param, cov = optimize.curve_fit(get_linear_func,
+                                    loading_rate_array,
+                                    max_stress_array, 
+                                    p0=[loading_rate_array[-1], max_stress_array[0]], 
+                                    maxfev=50000)
+
+    linear_fit = get_linear_func(loading_rate_array, *param)
+    plt.plot(loading_rate_array, linear_fit)
+    
+    plt.xlabel("Loading rate dσ/dt")
+    plt.ylabel("Ultimate stress σ_max (MPa)")
+    plt.title("Ultimate Stress vs Loading Rate")
+
+    plt.show()
 
 #Function calls
 sample_data_dict_schnell = retrieve_sample_data("CuratedRawData_Sand_033_Box1_RT_schnell(1)/")
-sigma_max_list = calculate_sigma_max(sample_data_dict_schnell)
-graph_measurements(sample_data_dict_schnell)
+sample_data_dict_schnell = graph_load_measurements(sample_data_dict_schnell)
 
-#sample_data_dict_langsam = retrieve_sample_data("CuratedRawData_Sand_033_Box2_RT_langsam(1)/")
-#sigma_max_list = calculate_sigma_max(sample_data_dict_langsam)
-#graph_measurements(sample_data_dict_langsam)
+
+sample_data_dict_langsam = retrieve_sample_data("CuratedRawData_Sand_033_Box2_RT_langsam(1)/")
+sample_data_dict_langsam = graph_load_measurements(sample_data_dict_langsam)
+graph_sigma_max_vs_loading_rate(sample_data_dict_schnell,sample_data_dict_langsam)

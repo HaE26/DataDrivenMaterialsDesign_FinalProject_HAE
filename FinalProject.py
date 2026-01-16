@@ -26,6 +26,11 @@ Progress:
     Almost all steps done. Just need to calculate the propertoes from load rate
     versus max stress, and then something about that Weibull distribution. 
     The code should then get cleaned up.
+    
+NOTES for Presentaiton:
+    - Make a block diagram of processing steps
+    - Share what what worked, what was hard, how you worked around it
+    - Optimize code to be faster and/or easier to read/fewer lines.
 """
 # -*- coding: utf-8 -*-
 """
@@ -251,31 +256,46 @@ def graph_sigma_max_vs_loading_rate(*sample__data_dicts):
             max_stress = sample["Max Stress"]
             max_stress_list.append(float(max_stress))
             
-            plt.scatter(loading_rate, max_stress)
+            
     loading_rate_array = np.asarray(loading_rate_list, dtype=float)
     max_stress_array   = np.asarray(max_stress_list,   dtype=float)
-    print(type(loading_rate_array))
-    print(type(max_stress_array))
+
+    log_loading_rate_array = np.log10(loading_rate_array)
+    log_max_stress_array = np.log10(max_stress_array)
+    plt.scatter(log_loading_rate_array, log_max_stress_array)
     param, cov = optimize.curve_fit(get_linear_func,
-                                    loading_rate_array,
-                                    max_stress_array, 
+                                    log_loading_rate_array,
+                                    log_max_stress_array, 
                                     p0=[loading_rate_array[-1], max_stress_array[0]], 
                                     maxfev=50000)
 
-    linear_fit = get_linear_func(loading_rate_array, *param)
-    plt.plot(loading_rate_array, linear_fit)
+    linear_fit = get_linear_func(log_loading_rate_array, *param)
+    m, b = param
+    n = 1/m - 1 
+    log10_B = b * (n + 1) - np.log10(n + 1)
     
-    plt.xlabel("Loading rate dσ/dt")
-    plt.ylabel("Ultimate stress σ_max (MPa)")
-    plt.title("Ultimate Stress vs Loading Rate")
-
+    plt.plot(log_loading_rate_array, linear_fit)
+    plt.xlabel("Log (dσ/dt) MPa/s",
+               fontsize=17)
+    plt.ylabel("Log (σ_max) (MPa)",
+               fontsize=17)
+    plt.title("Ultimate Stress vs Loading Rate",
+               fontsize=17)
+    plt.text(1.325, 2.38, f'The n quantity is {np.round(n,3)} \nThe lg(B*sigma_c^(n-2) quantity is {np.round(log10_B,3)}', 
+             fontsize=17, color='black', 
+             bbox=dict(facecolor='white', alpha=0.5)) # Alpha is the transparency
     plt.show()
 
+
+    #print(f'the n value is {n}.\n The Bsigma^(n-2) quantity is: {y}')
+    print(n)
+    print(log10_B)
+    
 #Function calls
 sample_data_dict_schnell = retrieve_sample_data("CuratedRawData_Sand_033_Box1_RT_schnell(1)/")
 sample_data_dict_schnell = graph_load_measurements(sample_data_dict_schnell)
 
-
 sample_data_dict_langsam = retrieve_sample_data("CuratedRawData_Sand_033_Box2_RT_langsam(1)/")
 sample_data_dict_langsam = graph_load_measurements(sample_data_dict_langsam)
+
 graph_sigma_max_vs_loading_rate(sample_data_dict_schnell,sample_data_dict_langsam)
